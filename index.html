@@ -39,8 +39,8 @@
 		Link to GitHub repository:  <a href="https://github.com/cal-cs184-student/hw1-jerrychen0718-writeup">https://github.com/cal-cs184-student/hw1-jerrychen0718-writeup</a>
 
 		<figure>
-			<img src="assets/lion.jpg" alt="Lion" style="width:50%"/>
-			<figcaption>You can add images with captions!</figcaption>
+			<img src="assets/Begin.jpg" style="width:50%"/>
+			<figcaption> Freedom </figcaption>
 		</figure>
 
 		<!--
@@ -48,8 +48,22 @@
 		-->
 
 		<h2>Overview</h2>
-		Give a high-level overview of what you implemented in this homework. Think about what you've built as a whole. Share your thoughts on what interesting things you've learned from completing the homework.
 
+		<p>
+		In this homework, I built a software rasterization pipeline that converts vector-based geometry into pixels while exploring several of the fundamental ideas behind modern computer graphics. I started by implementing triangle rasterization using edge functions and bounding boxes, and then extended the rasterizer with supersampling to reduce aliasing. I also implemented geometric transformations, barycentric interpolation for smoothly varying vertex colors, texture mapping, nearest and bilinear texture sampling, and mipmapping with different pixel and level sampling methods.
+		</p>
+
+		<p>
+		One of the most important things I learned from this project is that rendering quality is fundamentally connected to how we sample a continuous scene onto a discrete pixel grid. Supersampling, bilinear filtering, and mipmapping approach aliasing from different perspectives, but they all address the same underlying problem: a single pixel cannot perfectly represent all of the information in a continuous image. Implementing these techniques myself made the relationship between sampling theory and the visual artifacts in an actual renderer much more concrete.
+		</p>
+
+		<p>
+		I also explored several extra-credit extensions, including interactive viewport rotation, an optimized triangle rasterizer, jittered supersampling, and anisotropic texture filtering. These extensions helped me think about graphics from an engineering perspective: improving image quality often requires a tradeoff between computational cost, memory usage, and visual accuracy. For the art competition, I also wrote a procedural SVG generator that recreates a fireworks photograph using geometric primitives and particle-like trajectories, which was a fun way to combine the mathematical ideas from the assignment with a more artistic application.
+		</p>
+
+		<p>
+		Overall, this homework helped me understand rasterization not as a collection of isolated algorithms, but as a complete pipeline: transform geometry, determine coverage, interpolate attributes, sample textures, filter signals, and finally resolve samples into pixels. Seeing how each stage affects the final image was the most valuable part of the project.
+		</p>
 		<h2>Task 1: Drawing Single-Color Triangles</h2>
 		
 		<h3>Triangle Rasterization</h3>
@@ -77,6 +91,142 @@
                 The pixel inspector is centered on the thin red triangle, showing how its edge is represented by discrete pixel samples.
 			</figcaption>
 		</figure>
+
+		<h3>Extra Credit: Optimized Triangle Rasterization</h3>
+
+		<p>
+		I also implemented an optimized version of the triangle rasterizer. The basic implementation evaluates all three edge functions from scratch for every subsample inside the bounding box. However, neighboring subsamples are separated by a constant displacement, which means that much of this arithmetic is redundant.
+		</p>
+
+		<p>
+		My main optimization is
+		<b>incremental edge-function evaluation</b>. Consider an edge function
+		of the form
+		</p>
+
+		<p align="middle">
+		E(x, y) = L<sub>x</sub>(y - y<sub>0</sub>)
+		- L<sub>y</sub>(x - x<sub>0</sub>).
+		</p>
+
+		<p>
+		When moving vertically from one subsample to the next, x remains unchanged and y increases by a constant amount. If there are <code>n = sqrt(sample_rate)</code> samples along each dimension, neighboring subsamples are separated by 1/n in the y direction. Therefore, the edge-function value changes by a constant amount:
+		</p>
+
+		<p align="middle">
+		&Delta;E<sub>y</sub> = L<sub>x</sub> / n.
+		</p>
+
+		<p>
+		Instead of recomputing the complete edge function at every subsample, I compute its value normally at the first subsample in each vertical subpixel column. The remaining edge values in that column are generated incrementally using additions.
+		</p>
+
+		<pre><code>float step_y_0 = Lx_01 * inv_n;
+		float step_y_1 = Lx_21 * inv_n;
+		float step_y_2 = Lx_02 * inv_n;
+
+		...
+
+		edge_0 += step_y_0;
+		edge_1 += step_y_1;
+		edge_2 += step_y_2;</code></pre>
+
+		<p>
+		This replaces many repeated multiplications and subtractions in the innermost loop with simple additions.
+		</p>
+
+
+		<h4>Additional Loop Optimizations</h4>
+
+		<p>
+		I also factored several invariant computations out of the inner loops. First, I compute <code>1.0f / n</code> once and reuse it when computing subpixel positions instead of repeatedly dividing by <code>n</code>. Second, the starting sample-buffer index for a pixel, <code>(y * width + x) * sample_rate</code>, is computed once per pixel rather than repeatedly for each covered subsample.
+		</p>
+
+		<p>
+		These optimizations do not change which samples are tested or the triangle coverage rule. They reduce the amount of arithmetic required for each tested sample. I verified that switching between the basic and optimized implementations produces the same rendered image.
+		</p>
+
+
+		<h4>Performance Comparison</h4>
+
+		<p>
+		To measure the performance improvement, I added a runtime toggle that switches between the original and optimized triangle rasterizers. I measured the execution time around <code>svg.draw()</code> using precise C++ timing instrumentation.
+		</p>
+
+		<p>
+		The experiment used <code>basic/test4.svg</code> at <b>16 samples per pixel</b>. The viewport, sample rate, and all other rendering settings were kept unchanged. I alternated between the basic and optimized implementations to reduce the effect of unrelated timing variation between runs.
+		</p>
+
+		<table style="
+			width: 70%;
+			margin: 20px auto;
+			text-align: center;
+			border-collapse: collapse;
+		">
+		<tr>
+			<th style="border: 1px solid #ccc; padding: 10px;">
+			Implementation
+			</th>
+			<th style="border: 1px solid #ccc; padding: 10px;">
+			Average Render Time (ms)
+			</th>
+		</tr>
+
+		<tr>
+			<td style="border: 1px solid #ccc; padding: 10px;">
+			Basic Bounding-Box Rasterizer
+			</td>
+			<td style="border: 1px solid #ccc; padding: 10px;">
+			7.847 ms
+			</td>
+		</tr>
+
+		<tr>
+			<td style="border: 1px solid #ccc; padding: 10px;">
+			Optimized Incremental Rasterizer
+			</td>
+			<td style="border: 1px solid #ccc; padding: 10px;">
+			5.479 ms
+			</td>
+		</tr>
+		</table>
+
+
+		<figure>
+		<img src="assets/task1_extra_timing.png"
+			alt="Terminal timing comparison between the basic and optimized triangle rasterizers"
+			style="width: 80%;">
+		<figcaption>
+			Alternating timing measurements with triangle optimization disabled (OFF) and enabled (ON) on basic/test4.svg at 16 samples per pixel. The optimized implementation consistently requires less rendering time.
+		</figcaption>
+		</figure>
+
+
+		<h4>Performance Analysis</h4>
+
+		<p>
+		The average render time decreased from approximately
+		<b>7.847 ms</b> for the basic implementation to
+		<b>5.479 ms</b> for the optimized implementation.
+		</p>
+
+		<p>
+		The resulting speedup is:
+		</p>
+
+		<p align="middle">
+		Speedup = 7.847 / 5.479 &asymp; <b>1.43&times;</b>.
+		</p>
+
+		<p>
+		This corresponds to approximately a <b>30.2% reduction in measured render time</b>. The improvement comes primarily from replacing repeated edge-function arithmetic in the innermost sampling loop with incremental additions, while also moving invariant division and sample-buffer index calculations outside the inner loops.
+		</p>
+
+		<p>
+		Both the basic and optimized implementations produce the same
+		rasterization result, so the optimization improves performance without
+		changing the rendered output.
+		</p>
 
 		
 		<h2>Task 2: Antialiasing by Supersampling</h2>
@@ -122,6 +272,36 @@
 			  </tr>
 			</table>
 		</div>
+
+		<h3>Extra Credit: Jittered Supersampling</h3>
+
+		<p>
+		I implemented jittered supersampling as an alternative to the regular grid sampling pattern. In the original implementation, each subsample is placed at the center of its cell in an n-by-n grid. In the jittered implementation, I still divide each pixel into the same n-by-n strata, but randomly perturb the sample position within each stratum. Therefore, the number of samples per pixel remains unchanged.
+		</p>
+
+		<p>
+		Regular grid sampling can produce structured aliasing when high-frequency geometry aligns with the periodic sampling lattice. Jittering breaks this regular alignment. It does not eliminate aliasing, but tends to convert coherent aliasing patterns into less structured sampling noise.
+		</p>
+
+		<div style="display: flex; justify-content: center; gap: 20px;">
+		<figure style="width: 45%;">
+			<img src="assets/task2_extra_grid.png" style="width:100%;">
+			<figcaption>
+			Regular grid supersampling, 4 samples per pixel.
+			</figcaption>
+		</figure>
+
+		<figure style="width: 45%;">
+			<img src="assets/task2_extra_jittered.png" style="width:100%;">
+			<figcaption>
+			Jittered supersampling, 4 samples per pixel.
+			</figcaption>
+		</figure>
+		</div>
+
+		<p>
+		I created a test scene containing a set of long, very thin triangles. Their narrow widths and shallow slopes make the geometry particularly sensitive to the locations of the subsamples. With the regular grid, the periodic sample locations can repeatedly hit or miss portions of the thin triangles, producing more structured coverage artifacts. With jittered sampling, the sample positions are distributed within their grid cells, breaking this repeated alignment and making the remaining artifacts less spatially coherent.
+		</p>
 
 
 		<h2>Task 3: Transforms</h2>
@@ -177,6 +357,210 @@
             </td>
 		</tr>
 </table>
+
+	<!-- Extra Credit: Interactive Viewport Rotation -->
+
+    <h2> Extra Credit: Interactive Viewport Rotation </h2>
+
+		<h3>Overview</h3>
+
+		<p>
+		For the GUI extra credit, I implemented an interactive viewport rotation feature. Two keyboard controls allow the rendered SVG to rotate in opposite directions. Each key press changes the current rotation angle by 5 degrees and redraws the scene. Pressing the space bar resets the view, including the rotation angle, back to its original 0-degree orientation.
+		</p>
+
+		<p>
+		Instead of modifying the coordinates of individual SVG primitives, I apply the rotation as part of the viewing transformation. This means that the entire rendered SVG is rotated consistently as a single view.
+		</p>
+
+
+		<h3>Implementation</h3>
+
+		<p>
+		I added a persistent <code>viewport_rotation</code> variable to the <code>DrawRend</code> class to store the current rotation angle. The keyboard event handler updates this angle in increments of 5 degrees and then redraws the scene.
+		</p>
+
+		<pre>
+		case 'Q':
+			viewport_rotation += 5.0f;
+			redraw();
+			break;
+
+		case 'E':
+			viewport_rotation -= 5.0f;
+			redraw();
+			break;
+		</pre>
+
+		<p>
+		I also modified the existing reset operation so that pressing the space bar restores the rotation angle to zero in addition to resetting the original view transformation.
+		</p>
+
+		<pre>
+		case ' ':
+			viewport_rotation = 0.0f;
+			view_init();
+			redraw();
+			break;
+		</pre>
+
+
+		<h3>Modification to the Transformation Stack</h3>
+
+		<p>
+		The original rendering pipeline first transforms a point from SVG coordinates into normalized device coordinates (NDC), and then transforms the NDC coordinates into screen coordinates:
+		</p>
+
+		<p align="middle">
+		<code>
+			p_screen = M_ndc_to_screen * M_svg_to_ndc * p_svg
+		</code>
+		</p>
+
+		<p>
+		In this renderer, the visible NDC region is the square <code>[0,1] x [0,1]</code>. Therefore, the center of the viewport in NDC coordinates is:
+		</p>
+
+		<p align="middle">
+		<code>(0.5, 0.5)</code>
+		</p>
+
+		<p>
+		Applying a rotation matrix directly in NDC space would rotate the SVG around the NDC origin <code>(0,0)</code>. This would cause the SVG to orbit around the corner of the viewport instead of rotating around the center of the screen.
+		</p>
+
+		<p>
+		To rotate around the center of the viewport, I use three transformations:
+		</p>
+
+		<ol>
+		<li>
+			Translate the viewport center from <code>(0.5,0.5)</code> to the origin.
+		</li>
+		<li>
+			Apply the rotation matrix <code>R(theta)</code>.
+		</li>
+		<li>
+			Translate the viewport center back to <code>(0.5,0.5)</code>.
+		</li>
+		</ol>
+
+		<p>
+		Therefore, the viewport rotation matrix is:
+		</p>
+
+		<p align="middle">
+		<code>
+			M_rotation =
+			T(0.5, 0.5) *
+			R(theta) *
+			T(-0.5, -0.5)
+		</code>
+		</p>
+
+		<p>
+		I inserted this rotation between the existing SVG-to-NDC transformation and the NDC-to-screen transformation. The complete transformation stack becomes:
+		</p>
+
+		<p align="middle">
+		<code>
+			p_screen =
+			M_ndc_to_screen *
+			T(0.5, 0.5) *
+			R(theta) *
+			T(-0.5, -0.5) *
+			M_svg_to_ndc *
+			p_svg
+		</code>
+		</p>
+
+		<p>
+		Because matrix transformations are applied from right to left, an SVG point is first transformed into NDC space. The NDC center is then translated to the origin, the rotation is applied, and the center is translated back. Finally, the transformed NDC coordinate is mapped into screen space.
+		</p>
+
+		<p>
+		In the implementation, I construct the viewport rotation matrix and insert it into the existing matrix stack before drawing the SVG:
+		</p>
+
+		<pre>
+		Matrix3x3 viewport_rotate =
+			translate(0.5f, 0.5f) *
+			rotate(viewport_rotation) *
+			translate(-0.5f, -0.5f);
+
+		Matrix3x3 svg_to_screen =
+			ndc_to_screen *
+			viewport_rotate *
+			svg_to_ndc[current_svg];
+
+		svg.draw(software_rasterizer, svg_to_screen);
+		</pre>
+
+
+		<h3>Results</h3>
+
+		<p>
+		The following images demonstrate the interactive viewport rotation. The first image shows the viewport rotated clockwise, the second shows rotation in the opposite direction, and the third shows the view after resetting the rotation back to 0 degrees.
+		</p>
+
+		<div style="display: flex; flex-direction: column; align-items: center;">
+
+		<table style="width: 100%; text-align: center; border-collapse: collapse;">
+			<tr>
+
+			<td style="width: 33%; text-align: center; vertical-align: top;">
+				<img
+				src="assets/extra_view_clockwise.png"
+				alt="Clockwise viewport rotation"
+				style="width: 95%;"
+				/>
+				<figcaption>
+				Clockwise viewport rotation.
+				</figcaption>
+			</td>
+
+			<td style="width: 33%; text-align: center; vertical-align: top;">
+				<img
+				src="assets/extra_view_counterclockwise.png"
+				alt="Counterclockwise viewport rotation"
+				style="width: 95%;"
+				/>
+				<figcaption>
+				Counterclockwise viewport rotation.
+				</figcaption>
+			</td>
+
+			<td style="width: 33%; text-align: center; vertical-align: top;">
+				<img
+				src="assets/extra_view_reset.png"
+				alt="Viewport reset to zero degrees"
+				style="width: 95%;"
+				/>
+				<figcaption>
+				Viewport reset to the original 0&deg; orientation.
+				</figcaption>
+			</td>
+
+			</tr>
+		</table>
+
+		</div>
+
+
+		<h3>Discussion</h3>
+
+		<p>
+		The results show that the transformation is applied to the complete SVG view rather than to individual triangles or other primitives. Both rotation directions use the same persistent viewport angle, with the two keyboard controls changing that angle in opposite directions.
+		</p>
+
+		<p>
+		Performing the rotation in NDC space also makes the implementation independent of the dimensions of a particular SVG. Since every SVG is first mapped into the same normalized <code>[0,1] x [0,1]</code> coordinate system, the center of rotation is always <code>(0.5,0.5)</code>. The existing NDC-to-screen transformation can then map the rotated result into the framebuffer as usual.
+		</p>
+
+		<p>
+		This implementation preserves the existing rasterization pipeline while
+		adding the new GUI behavior entirely through transformation composition.
+		</p>
+
 
 		<h2>Task 4: Barycentric coordinates</h2>
 		
@@ -446,19 +830,315 @@
 		</p>
 
 
-		<h2>(Optional) Task 7: Extra Credit - Draw Something Creative!</h2>
-		Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+		<section>
 
-		<h2>Additional Notes (please remove)</h2>
-		<ul>
-			<li>You can also add code if you'd like as so: <code>code code code</code></li>
-			<li>If you'd like to add math equations, 
-				<ul>
-					<li>You can write inline equations like so: \( a^2 + b^2 = c^2 \)</li>
-					<li>You can write display equations like so: \[ a^2 + b^2 = c^2 \]</li>
-				</ul>
-			</li>
-		</ul>
+	
+		<h2>Extra Credit: Anisotropic Filtering</h2>
+
+		<h3>Implementation</h3>
+
+		<p>
+			I implemented an approximate anisotropic texture filtering method using the screen-space UV derivatives already computed for mipmapping. I convert the UV derivatives into texel-space vectors and use their lengths to approximate the major and minor directions of the pixel's texture footprint.
+		</p>
+
+		<p>
+			The anisotropy ratio is computed as the ratio between the major and minor footprint lengths. In my test scene, this ratio was approximately <b>3.57</b>, so my implementation used <code>ceil(3.57) = 4</code> samples along the major direction. I cap the number of anisotropic samples at 8.
+		</p>
+
+		<p>
+			Instead of selecting the mip level from the largest footprint dimension, I select it using the minor-axis footprint:
+		</p>
+
+		<p style="text-align: center;">
+			<code>level = log2(minor_length)</code>
+		</p>
+
+		<p>
+			At each sampling position along the major direction, I perform bilinear sampling at the two neighboring mip levels and linearly interpolate between them. The samples along the major direction are then averaged to produce the final pixel color.
+		</p>
+
+
+		<h3>Comparison with Other Sampling Methods</h3>
+
+		<p>
+			I compared nearest, bilinear, trilinear, and anisotropic filtering using the same texture, geometry, viewport, zoom level, and sample rate. The screenshots below show the same zoomed-in region so that the differences between the filtering methods are easier to observe.
+		</p>
+
+		<table style="width: 100%; text-align: center; border-collapse: collapse;">
+			<tr>
+			<td style="width: 50%;">
+				<img src="assets/extra_nearest.png" style="width: 95%;">
+				<figcaption>Nearest sampling</figcaption>
+			</td>
+
+			<td style="width: 50%;">
+				<img src="assets/extra_bilinear.png" style="width: 95%;">
+				<figcaption>Bilinear sampling</figcaption>
+			</td>
+			</tr>
+
+			<tr>
+			<td>
+				<img src="assets/extra_trilinear.png" style="width: 95%;">
+				<figcaption>Trilinear sampling</figcaption>
+			</td>
+
+			<td>
+				<img src="assets/extra_anisotropic.png" style="width: 95%;">
+				<figcaption>Anisotropic filtering</figcaption>
+			</td>
+			</tr>
+		</table>
+
+
+		<h3>Visual Comparison</h3>
+
+		<p>
+			Nearest-neighbor sampling preserves sharp transitions, but it also produces the strongest aliasing because each sample selects only one texel. Bilinear filtering smooths these transitions by interpolating between four neighboring texels, although minification aliasing can still remain.
+		</p>
+
+		<p>
+			Trilinear filtering additionally interpolates between adjacent mip levels, which reduces minification artifacts. However, conventional mipmapping uses a single isotropic level of detail even when the pixel footprint is strongly elongated in texture space.
+		</p>
+
+		<p>
+			In the zoomed-in comparison, my anisotropic result appears smoother than the other methods. This is consistent with the implementation: several filtered samples are taken along the major direction of the elongated footprint and then averaged. Therefore, the goal is not simply to maximize apparent sharpness, but to better approximate the texture area covered by the screen pixel and reduce directional aliasing.
+		</p>
+
+
+		<h3>Performance Comparison</h3>
+
+		<p>
+			I used <code>clock()</code> to measure rendering performance under the same scene and viewing conditions. Multiple measurements were taken for each method and averaged.
+		</p>
+
+		<table style="width: 70%; margin: 0 auto; text-align: center;
+						border-collapse: collapse;">
+			<tr>
+			<th>Filtering Method</th>
+			<th>Average Render Time (ms)</th>
+			</tr>
+
+			<tr>
+			<td>Nearest</td>
+			<td>3.635</td>
+			</tr>
+
+			<tr>
+			<td>Bilinear</td>
+			<td>7.123</td>
+			</tr>
+
+			<tr>
+			<td>Trilinear</td>
+			<td>20.961</td>
+			</tr>
+
+			<tr>
+			<td>Anisotropic</td>
+			<td>50.488</td>
+			</tr>
+		</table>
+
+		<p>
+			The measured cost increases from nearest to bilinear to trilinear to anisotropic filtering. Nearest-neighbor sampling requires only a single texel lookup, while bilinear sampling combines four neighboring texels. Trilinear filtering performs bilinear filtering at two mip levels and interpolates between them. My anisotropic implementation is the most expensive because it performs multiple filtered samples along the major direction. With an anisotropy ratio of approximately 3.57 in this test, four samples were used along that direction.
+		</p>
+
+		<p>
+			This demonstrates the quality-performance tradeoff of texture filtering: more sophisticated filters can better account for the texture footprint, but require additional texture samples and therefore more computation.
+		</p>
+
+		</section>
+
+
+		<h2> Task 7: Extra Credit - Draw Something Creative! </h2>
+		
+		<h3>Overview and Inspiration</h3>
+
+		<p>
+			For the art competition, I created a procedural fireworks scene inspired by one of my original fireworks photographs. Instead of using the photograph directly as a texture, I analyzed its composition and recreated the major visual elements using SVG primitives supported by the CS184 rasterizer.
+		</p>
+
+		<p>
+			I focused on several important features of the original scene: the large golden willow firework dominating the sky, smaller colored fireworks, smoke around the horizon, dark mountains, reflections on the water, silhouetted spectators, and a small boat in the foreground.
+		</p>
+
+		<p>
+			I wrote a Python script, <code>src/generate_fireworks.py</code>, to procedurally generate the SVG. The script itself does not render the final image. It only generates geometric SVG primitives. The resulting <code>competition.svg</code> is then rendered using my CS184 rasterizer.
+		</p>
+
+
+		<h3>Reference and Final Rendering</h3>
+
+		<div style="display: flex; justify-content: center; align-items: flex-start; gap: 24px; flex-wrap: wrap; width: 100%;">
+
+		<figure style="flex: 1; min-width: 280px; margin: 0; text-align: center;">
+
+		<img
+			src="assets/fireworks_reference.jpg"
+			alt="Original fireworks reference photograph"
+			style="width: 100%; height: auto; display: block; margin: 0 auto;"
+		/>
+
+		<figcaption>
+			Original photograph used as the compositional and visual reference.
+		</figcaption>
+
+		</figure>
+
+		<figure style="flex: 1; min-width: 280px; margin: 0; text-align: center;">
+		<img
+			src="assets/competition.png"
+			alt="Procedurally generated fireworks scene"
+			style="width: 100%; height: auto; display: block; margin: 0 auto;"
+		/>
+		<figcaption>
+			Final 800&times;800 procedural SVG scene rendered using my CS184 rasterizer.
+		</figcaption>
+		</figure>
 		</div>
-	</body>
+
+
+		<h3>Procedural Generation</h3>
+
+		<p>
+			Rather than manually placing every firework particle, I generated the scene procedurally. The Python script constructs the final SVG from simple primitives such as <code>&lt;line&gt;</code>, <code>&lt;rect&gt;</code>, and <code>&lt;polygon&gt;</code>. This was especially useful because the rasterizer does not support general SVG path curves.
+		</p>
+
+		<p>
+			I divided the scene into several layers. The background contains the night sky and mountain silhouettes. Fireworks and smoke are generated in the middle layers, while the lake, reflections, people, dock, and boat form the foreground. Building the scene in this order also controls which objects visually overlap other objects.
+		</p>
+
+
+		<h3>Golden Willow Firework</h3>
+
+		<p>
+			The largest feature in the reference photograph is the golden willow-style firework. I modeled each branch as a small particle trajectory. A particle begins near the explosion center with an initial velocity determined by a randomly generated direction and speed.
+		</p>
+
+		<p>
+			The initial velocity can be written as
+		</p>
+
+		<p style="text-align: center;">
+			<code>
+			v<sub>x</sub> = v cos(&theta;),
+			&nbsp;&nbsp;
+			v<sub>y</sub> = v sin(&theta;)
+			</code>
+		</p>
+
+		<p>
+			I then approximate the motion of each particle using a simple ballistic
+			trajectory:
+		</p>
+
+		<p style="text-align: center;">
+			<code>
+			x(t) = x<sub>0</sub> + v<sub>x</sub>t
+			</code>
+		</p>
+
+		<p style="text-align: center;">
+			<code>
+			y(t) = y<sub>0</sub> + v<sub>y</sub>t +
+			1/2 gt<sup>2</sup>
+			</code>
+		</p>
+
+		<p>
+			Since SVG coordinates increase downward in the y direction, the positive gravity term causes the trails to gradually bend downward. This produces the characteristic hanging shape of a willow firework.
+		</p>
+
+
+		<h3>Approximating Curved Trails with Lines</h3>
+
+		<p>
+			The project rasterizer does not support SVG <code>&lt;path&gt;</code> elements, so I could not simply draw each firework trail as a Bezier curve. Instead, I sample several positions along each particle trajectory and connect consecutive positions with short <code>&lt;line&gt;</code> segments.
+		</p>
+
+		<p>
+			With enough segments, the individual straight lines visually approximate a curved trajectory. This is similar to approximating a continuous curve with a polyline.
+		</p>
+
+		<p>
+			I also introduce variation in particle velocity, trail length, brightness, direction, and small positional perturbations. Some trail segments are intentionally omitted, and additional small sparks are generated around the main trails. These variations prevent the firework from looking like a perfectly uniform geometric pattern.
+		</p>
+
+
+		<h3>Secondary Radial Fireworks</h3>
+
+		<p>
+			I used a second procedural generator for the smaller red, cyan, green, and purple fireworks. These fireworks are primarily radial rather than strongly affected by gravity.
+		</p>
+
+		<p>
+			For each burst, the script selects many directions around the explosion center and generates line segments extending outward. Random variation in direction, radius, brightness, and segment length creates less uniform and more organic-looking bursts.
+		</p>
+
+		<p>
+			Using multiple firework generators allowed me to reproduce the contrast in the reference image between the large drooping golden firework and the smaller circular colored explosions.
+		</p>
+
+
+		<h3>Smoke and Background Geometry</h3>
+
+		<p>
+			The lower part of the sky contains smoke illuminated by the fireworks. Because smooth volumetric smoke is difficult to represent using the supported SVG primitives, I approximate the smoke using overlapping irregular polygons with dark blue, gray, and purple tones.
+		</p>
+
+		<p>
+			The distant mountain silhouettes are also constructed from polygons. Their dark colors separate the bright sky from the lake while preserving the nighttime silhouette visible in the reference photograph.
+		</p>
+
+
+		<h3>Water and Reflections</h3>
+
+		<p>
+			The water reflections are generated separately from the fireworks. Instead of producing perfect mirror copies, I reuse colors from the fireworks and generate many short horizontal lines and rectangles below the horizon.
+		</p>
+
+		<p>
+			Their positions and lengths are varied so that the reflections become fragmented across the water surface. The horizontal spread increases in portions of the lower image, helping the reflection appear less like a geometric copy of the firework and more like light scattered across moving water.
+		</p>
+
+		<p>
+			Additional blue horizontal streaks are used to suggest the surface structure of the lake and separate the foreground water from the dark background.
+		</p>
+
+
+		<h3>Foreground Silhouettes</h3>
+
+		<p>
+			The foreground is constructed from simple geometric silhouettes. People are approximated using small polygons and rectangles, while the dock and boat are assembled from larger polygonal shapes.
+		</p>
+
+		<p>
+			These objects intentionally remain very dark because their main purpose is to establish depth and reproduce the strong foreground silhouettes of the reference photograph without distracting from the fireworks.
+		</p>
+
+
+		<h3>Reproducibility</h3>
+
+		<p>
+			Because many parts of the scene use randomized particle positions and lengths, I use a fixed random seed in the generator:
+		</p>
+
+		<pre><code>random.seed(184)</code></pre>
+
+		<p>
+			This keeps the procedural generation deterministic. Running <code>generate_fireworks.py</code> again therefore produces the same SVG composition instead of generating a different firework arrangement every time.
+		</p>
+
+
+		<h3>Final Result</h3>
+
+		<p>
+			The final scene is stored as <code>competition.svg</code>. I rendered this SVG using my CS184 rasterizer and used the viewer's <code>S</code> command to save the final screenshot. The submitted rendering is exactly 800&times;800 pixels.
+		</p>
+
+		<p>
+			Overall, this project was an experiment in representing an organic, photographic scene using only simple geometric primitives. The most interesting part was converting the continuous motion of firework particles into many discrete line segments while still preserving the recognizable shape and layering of the original photograph.
+		</p>
+
 </html>
